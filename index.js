@@ -1,154 +1,131 @@
 // index.js
 const TelegramBot = require("node-telegram-bot-api");
-const axios = require("axios");
-const fs = require("fs");
+const fetch = require("node-fetch");
 
-// === CONFIG ===
-const BOT_TOKEN = process.env.BOT_TOKEN;
+// === BOT CONFIG ===
+const BOT_TOKEN = "8389337410:AAEW5N2rbw2oYjhOfQaG62voVOcETb5t42I"; // put your bot token here
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
+
 const DAILY_LIMIT = 50;
-const SPAM_INTERVAL = 3000; // 3 seconds between requests
-const FROZEN_TIME = 60 * 60 * 1000; // 1 hour freeze
+const SPAM_LIMIT = 5; // how many quick requests before freeze
+const FREEZE_TIME = 60 * 60 * 1000; // 1 hour
 
-// Store user data { userId: { date, count, lastRequest, frozenUntil } }
-let userLimits = {};
-const LIMITS_FILE = "limits.json";
+// User tracking
+let userUsage = {}; // { userId: { count, date, lastTime, spamCount, frozenUntil } }
 
-// Load saved limits if file exists
-if (fs.existsSync(LIMITS_FILE)) {
-  userLimits = JSON.parse(fs.readFileSync(LIMITS_FILE));
-}
+// Reset usage daily
+setInterval(() => { userUsage = {}; }, 24 * 60 * 60 * 1000);
 
-// Save limits every minute
-setInterval(() => {
-  fs.writeFileSync(LIMITS_FILE, JSON.stringify(userLimits));
-}, 60 * 1000);
+// === START HANDLER ===
+bot.onText(/\/start/, (msg) => {
+  const chatId = msg.chat.id;
+  bot.sendMessage(
+    chatId,
+    `👋 Hello *${msg.from.first_name || "friend"}*!  
 
-// Reset limits daily
-function resetDailyLimits() {
-  userLimits = {};
-}
-setInterval(resetDailyLimits, 24 * 60 * 60 * 1000);
+✨ Use me to create AI images with *Pollinations AI*!  
 
-// Escape markdown special chars
-function escapeMarkdown(text) {
-  return text.replace(/([_*[\]()~`>#+=|{}.!-])/g, "\\$1");
-}
+📌 Command:  
+\`/paint <prompt>\`  
 
-// Start / Help message
-const welcomeMessage = `👋 *Welcome to PIXi* 🎨  
+🎨 Example:  
+\`/paint a car 🚗\`  
 
-I turn your imagination into AI-generated art!  
-
-✨ How to use:
-/paint <your idea>  
-
-📌 Example:
-/paint a car 🚗  
-
-⚡ *Daily limit:* 50 images per user  
-🚫 Spamming will freeze your access for a while!  
-
-👨‍💻 Bot creator: @Nepomodz  
-
-Enjoy creating! 🌟`;
-
-bot.onText(/^\/start/, (msg) => {
-  bot.sendMessage(msg.chat.id, welcomeMessage, { parse_mode: "Markdown" });
+⚡ *Limit*: 50 images per day per user  
+🚫 Spammers will be frozen for 1 hour`,
+    { parse_mode: "Markdown" }
+  );
 });
 
-bot.onText(/^\/help/, (msg) => {
-  bot.sendMessage(msg.chat.id, welcomeMessage, { parse_mode: "Markdown" });
-});
-
-// Auto-thank when bot is added to group
+// === THANK ADMIN WHEN ADDED TO GROUP ===
 bot.on("new_chat_members", (msg) => {
-  msg.new_chat_members.forEach((member) => {
-    if (member.id === bot.botInfo.id) {
+  const newMembers = msg.new_chat_members;
+  newMembers.forEach((member) => {
+    if (member.username === bot.me?.username) {
       bot.sendMessage(
         msg.chat.id,
-        `🙏 Thanks *${msg.chat.title}* admins for inviting me here!  
-Use /paint <prompt> to start creating awesome AI art ✨`,
-        { parse_mode: "Markdown" },
+        `🙏 Thanks *Admin* for adding me here!  
+I can now generate AI images with:  
+\`/paint <prompt>\` 🎨`,
+        { parse_mode: "Markdown" }
       );
     }
   });
 });
 
-// Handle /paint command
-bot.onText(/^\/paint (.+)/, async (msg, match) => {
+// === PAINT HANDLER ===
+bot.onText(/\/paint (.+)/, async (msg, match) => {
   const chatId = msg.chat.id;
   const userId = msg.from.id;
-  const prompt = match[1];
-  const safePrompt = escapeMarkdown(prompt);
+  const prompt = match[1].trim();
 
-  const today = new Date().toISOString().split("T")[0];
-  if (!userLimits[userId] || userLimits[userId].date !== today) {
-    userLimits[userId] = {
-      date: today,
+  // Track user usage
+  if (!userUsage[userId]) {
+    userUsage[userId] = {
       count: 0,
-      lastRequest: 0,
+      date: new Date().toDateString(),
+      lastTime: 0,
+      spamCount: 0,
       frozenUntil: 0,
     };
   }
-
-  const userData = userLimits[userId];
-
-  // Check freeze
-  if (Date.now() < userData.frozenUntil) {
-    bot.sendMessage(
-      chatId,
-      `❌ You are temporarily frozen due to spamming.\n⏳ Try again later.`,
-    );
-    return;
-  }
+  const userData = userUsage[userId];
 
   // Spam check
-  if (Date.now() - userData.lastRequest < SPAM_INTERVAL) {
-    userData.frozenUntil = Date.now() + FROZEN_TIME;
-    bot.sendMessage(
+  const now = Date.now();
+  if (now - userData.lastTime < 5000) {
+    userData.spamCount++;
+  } else {
+    userData.spamCount = 0;
+  }
+  userData.lastTime = now;
+
+  if (userData.spamCount >= SPAM_LIMIT) {
+    userData.frozenUntil = now + FREEZE_TIME;
+    return bot.sendMessage(
       chatId,
-      `🚫 Too many requests too quickly!\nYou are frozen for 1 hour.`,
+      `🚫 ${msg.from.first_name}, you are frozen for spamming. Try again after 1 hour.`
     );
-    return;
+  }
+
+  if (userData.frozenUntil > now) {
+    return bot.sendMessage(
+      chatId,
+      `⏳ You are frozen. Please wait until your freeze time ends.`
+    );
   }
 
   // Daily limit check
+  if (userData.date !== new Date().toDateString()) {
+    userData.count = 0;
+    userData.date = new Date().toDateString();
+  }
   if (userData.count >= DAILY_LIMIT) {
-    bot.sendMessage(
+    return bot.sendMessage(
       chatId,
-      "⚠️ You’ve reached your daily limit of 50 images. Come back tomorrow!",
+      `⚡ You have reached your *daily limit* of ${DAILY_LIMIT} images. Come back tomorrow!`,
+      { parse_mode: "Markdown" }
     );
-    return;
   }
 
-  userData.lastRequest = Date.now();
+  userData.count++;
 
-  bot.sendMessage(chatId, `🎨 Creating masterpiece for: *${safePrompt}* ...`, {
-    parse_mode: "MarkdownV2",
+  // Fetch Pollinations image
+  const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(
+    prompt
+  )}`;
+
+  bot.sendMessage(chatId, `🎨 Generating your image for: *${prompt}* ...`, {
+    parse_mode: "Markdown",
   });
 
   try {
-    const response = await axios.get(
-      `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}`,
-      {
-        responseType: "arraybuffer",
-      },
-    );
-
-    userData.count++;
-
-    bot.sendPhoto(chatId, response.data, {
-      caption: `✅ Art created for: *${safePrompt}*\n\n🌟 Remaining today: ${
-        DAILY_LIMIT - userData.count
-      }`,
-      parse_mode: "MarkdownV2",
+    await bot.sendPhoto(chatId, imageUrl, {
+      caption: `✨ Here’s your image for: *${prompt}*  
+⚡ (${userData.count}/${DAILY_LIMIT} today)`,
+      parse_mode: "Markdown",
     });
   } catch (err) {
-    console.error(err);
-    bot.sendMessage(
-      chatId,
-      "❌ Failed to generate image. Please try again later.",
-    );
+    bot.sendMessage(chatId, "❌ Failed to generate image. Try again later.");
   }
 });
