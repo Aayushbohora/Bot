@@ -2,7 +2,7 @@
 const TelegramBot = require("node-telegram-bot-api");
 
 // === CONFIG ===
-const BOT_TOKEN = process.env.BOT_TOKEN || "YOUR_BOT_TOKEN_HERE";
+const BOT_TOKEN = process.env.BOT_TOKEN || "8389337410:AAEW5N2rbw2oYjhOfQaG62voVOcETb5t42I";
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
 const DAILY_LIMIT = 50;
