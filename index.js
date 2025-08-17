@@ -2,7 +2,7 @@
 const TelegramBot = require("node-telegram-bot-api");
 
 // === CONFIG ===
-const BOT_TOKEN = "8389337410:AAEW5N2rbw2oYjhOfQaG62voVOcETb5t42I"; // Your bot token
+const BOT_TOKEN = process.env.BOT_TOKEN || "YOUR_BOT_TOKEN_HERE";
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
 
 const DAILY_LIMIT = 50;
@@ -11,7 +11,7 @@ const SPAM_MAX = 3; // max spam counts before freeze
 const FREEZE_TIME = 60 * 60 * 1000; // 1 hour freeze
 
 // User tracking
-let userData = {}; // { userId: { count, date, lastRequest, spamCount, frozenUntil } }
+let userData = {}; // { userId: { count, lastRequest, spamCount, frozenUntil } }
 
 let botUsername = "";
 
