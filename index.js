@@ -36,7 +36,7 @@ function escapeMarkdown(text) {
 }
 
 // Start / Help message
-const welcomeMessage = `👋 *Welcome to PaintBot* 🎨  
+const welcomeMessage = `👋 *Welcome to PIXi* 🎨  
 
 I turn your imagination into AI-generated art!  
 
